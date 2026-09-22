@@ -1,13 +1,17 @@
 package io.github.giannialberico.observability.runtime;
 
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import io.opentelemetry.api.baggage.Baggage;
+import io.opentelemetry.api.baggage.BaggageEntry;
+import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.context.Context;
 import io.opentelemetry.context.ContextStorage;
 import io.opentelemetry.context.Scope;
 import io.opentelemetry.instrumentation.api.instrumenter.LocalRootSpan;
+import io.opentelemetry.sdk.trace.ReadWriteSpan;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -48,18 +52,25 @@ public final class BaggageContextStorage {
     }
 
     private static void mirror(Context context) {
-        Span root = LocalRootSpan.fromContextOrNull(context);
+        ReadWriteSpan root = (ReadWriteSpan) LocalRootSpan.fromContext(context);
+        Span current = Span.fromContext(context);
 
-        if (root == null) {
-            return;
+        Baggage baggage = Baggage.current();
+
+        if (current.getSpanContext().isValid()) {
+            baggage.asMap().forEach((key, entry) -> {
+                if (root.getAttribute(AttributeKey.stringKey(key)) == null) {
+                    current.setAttribute(key, entry.getValue());
+                }
+            });
         }
 
-        if (!root.getSpanContext().isValid()) {
-            return;
+        if (root.getSpanContext().isValid()) {
+            setBaggageToSpan(baggage, root);
         }
+    }
 
-        Baggage.fromContext(context)
-                .asMap()
-                .forEach((key, entry) -> root.setAttribute(key, entry.getValue()));
+    private static void setBaggageToSpan(Baggage baggage, Span span) {
+        baggage.asMap().forEach((key, entry) -> span.setAttribute(key, entry.getValue()));
     }
 }
